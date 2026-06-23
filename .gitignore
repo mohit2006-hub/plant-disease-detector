@@ -1,4 +1,20 @@
-backend/venv/
-backend/__pycache__/
+# Python environment artifacts
+env/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node.js frontend dependencies
 frontend/node_modules/
+frontend/dist/
+.eslintcache
+
+# Heavy Datasets & Model Weights
+data/
+New Plant Diseases Dataset (Augmented)/
+backend/weights/*.pth
+
+# System files
 .DS_Store
+.env

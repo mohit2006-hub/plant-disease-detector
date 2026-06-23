@@ -1,74 +1,71 @@
 # backend/src/model.py
 import torch
+import torch.nn as nn
 import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import io
 
-# Explicit classification classes mapped for agricultural applications
+# Explicit classification classes mapped directly from the Kaggle dataset folder structure
 DISEASE_CLASSES = [
-    "Tomato - Healthy",
-    "Tomato - Bacterial Spot",
-    "Tomato - Late Blight",
-    "Potato - Early Blight",
-    "Potato - Healthy",
-    "Corn - Common Rust"
+    'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
+    'Blueberry___healthy', 'Cherry___Powdery_mildew', 'Cherry___healthy', 'Corn___Cercospora_leaf_spot Gray_leaf_spot',
+    'Corn___Common_rust', 'Corn___Northern_Leaf_Blight', 'Corn___healthy', 'Grape___Black_rot',
+    'Grape___Esca_(Black_Measles)', 'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)', 'Grape___healthy',
+    'Orange___Haunglongbing_(Citrus_greening)', 'Peach___Bacterial_spot', 'Peach___healthy',
+    'Pepper,_bell___Bacterial_spot', 'Pepper,_bell___healthy', 'Potato___Early_blight',
+    'Potato___Late_blight', 'Potato___healthy', 'Raspberry___healthy', 'Soybean___healthy',
+    'Squash___Powdery_mildew', 'Strawberry___Leaf_scorch', 'Strawberry___healthy',
+    'Tomato___Bacterial_spot', 'Tomato___Early_blight', 'Tomato___Late_blight', 'Tomato___Leaf_Mold',
+    'Tomato___Septoria_leaf_spot', 'Tomato___Spider_mites Two-spotted_spider_mite',
+    'Tomato___Target_Spot', 'Tomato___Tomato_Yellow_Leaf_Curl_Virus', 'Tomato___Tomato_mosaic_virus',
+    'Tomato___healthy'
 ]
 
-class DiseaseClassifier:
-    def __init__(self):
-        # We load a lightweight MobileNetV3 backbone architecture
-        self.model = models.mobilenet_v3_small(pretrained=False)
-        self.model.eval() # Set model layers to evaluation mode
+class DiseaseClassifier(nn.Module):
+    def __init__(self, num_classes=38):
+        super(DiseaseClassifier, self).__init__()
+        
+        # 1. Load a lightweight MobileNetV3 backbone architecture
+        # Using weights=None (or pretrained=False) because we will train this on agricultural data
+        self.backbone = models.mobilenet_v3_small(weights=None)
+        
+        # 2. Extract the number of input features going into the original classifier head
+        # MobileNetV3 small uses a final linear layer in self.backbone.classifier[3]
+        in_features = self.backbone.classifier[3].in_features
+        
+        # 3. Replace the final linear layer to map to our 38 custom agricultural disease classes
+        self.backbone.classifier[3] = nn.Linear(in_features, num_classes)
         
         # Image transformation pipeline to match standard ML tensor inputs (224x224 pixels)
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], 
+                mean=[0.485, 0.456, 0.406],
                 std=[0.229, 0.224, 0.225]
             )
         ])
+        
+    def forward(self, x):
+        return self.backbone(x)
 
     def predict(self, image_bytes):
         try:
-            # Load raw image binary data stream 
-            img_stream = io.BytesIO(image_bytes)
-            image = Image.open(img_stream)
+            # Load raw image binary data stream
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            tensor = self.transform(image).unsqueeze(0) # Add batch dimension (1, 3, 224, 224)
             
-            # Explicitly drop transparency alpha layers (PNGs) to ensure strict 3-channel RGB compliance
-            if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
-                image = image.convert('RGB')
-            else:
-                image = image.convert('RGB')
-                
-            tensor = self.transform(image).unsqueeze(0) # Add batch dimension
-            
-            # Run mock tensor inference loop logic safely
+            self.eval() # Set model layers to evaluation mode
             with torch.no_grad():
-                # Generate a completely stable pseudo-random index based on the actual image byte length
-                byte_length = len(image_bytes)
-                pseudo_index = byte_length % len(DISEASE_CLASSES)
-                confidence = 88.5 + (byte_length % 11)
-                if confidence > 100.0:
-                    confidence = 98.4
+                outputs = self.forward(tensor)
+                probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+                confidence, class_idx = torch.max(probabilities, 0)
                 
             return {
                 "status": "success",
-                "prediction": DISEASE_CLASSES[pseudo_index],
-                "confidence": round(confidence, 2),
-                "remedy": self.get_remedy(DISEASE_CLASSES[pseudo_index])
+                "class_name": DISEASE_CLASSES[class_idx.item()],
+                "confidence": float(confidence.item())
             }
         except Exception as e:
-            # Log any structural file parsing issues back to the runtime gateway
-            return {"status": "error", "message": f"Tensor Transformation Failure: {str(e)}"}
-
-    def get_remedy(self, disease):
-        remedies = {
-            "Tomato - Bacterial Spot": "Apply copper-based fungicides early in the morning and remove lower infected crop leaves.",
-            "Tomato - Late Blight": "Ensure proper field drainage and use systemic organic protective sprays.",
-            "Potato - Early Blight": "Maintain optimal nitrogen levels and implement structured crop rotation schedules.",
-            "Corn - Common Rust": "Deploy resistant hybrid crop strains and avoid overhead irrigation methods."
-        }
-        return remedies.get(disease, "No treatment necessary. Maintain standard irrigation and nutrient cycles.")
+            return {"status": "error", "message": str(e)}
