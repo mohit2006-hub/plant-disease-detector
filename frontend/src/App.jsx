@@ -31,7 +31,7 @@ function App() {
     formData.append('file', selectedFile);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/predict', {
+      const response = await fetch('https://plant-disease-detector-xzcy.onrender.com/api/predict', {
         method: 'POST',
         body: formData,
       });
