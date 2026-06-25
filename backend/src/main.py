@@ -39,7 +39,9 @@ def load_ml_weights():
     print("⏳ Initializing Deep Learning Inference Engine...")
     classifier = DiseaseClassifier(num_classes=38)
     
-    weights_path = "./backend/weights/plant_model.pth"
+   # Automatically calculates the absolute path to your weights folder
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    weights_path = os.path.join(BASE_DIR, "backend", "weights", "plant_model.pth")
     if os.path.exists(weights_path):
         print(f"💾 Found trained checkpoint. Serializing weights from {weights_path}...")
         # Safely map tensors back to CPU architecture for light-weight server execution
